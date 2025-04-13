@@ -4,7 +4,7 @@ notify_by_webex is a versatile command-line utility designed to simplify sending
 
 ## Features
 
-- **File Upload:** Send local files as attachments to a Webex room.
+- **File Upload:** Send local files as attachments to a Webex room. For more details, refer to the [Message Attachments](https://developer.webex.com/docs/basics#message-attachments) section on the Webex for Developers site.
 - **Command-Line Flags:** Provide the Webex authorization token, room ID, message text, and file path through convenient flags.
 - **Validation:** Ensures the file is one of the supported types and does not exceed a maximum size of 100 MB.
 - **Logging:** Outputs the `Content-Disposition` and `Content-Type` headers for verification and debugging.
@@ -32,6 +32,8 @@ The tool supports the following file types:
    Make sure you have [Go installed](https://golang.org/dl/).
 
    ```bash
+   go mod init github.com/hgrimm/notify_by_webex
+   go mod tidy
    go build -o notify_by_webex
    ```
 
