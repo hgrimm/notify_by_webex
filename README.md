@@ -41,26 +41,37 @@ The tool supports the following file types:
 
 ## Usage
 
+To list all associated rooms (displaying only the room title and ID sorted by title), run:
+
+./notify_by_webex -T <ACCESS_TOKEN> -L
+
+Note: The access token (-T) is required when using the -L flag.
+
+To Send a Message with an Attachment
+
 Run the executable with the required flags:
 
-```bash
 ./notify_by_webex -T <ACCESS_TOKEN> -R <ROOM_ID> -f <FILE_PATH> [-t <MESSAGE_TEXT>]
-```
 
-### Flags
+## Flags
 
-- `-T`: **(Required)** Your Webex access token.
-- `-R`: **(Required)** The Webex room ID where the message will be sent.
-- `-f`: **(Required)** The local file path of the file to upload.
-- `-t`: *(Optional)* A plain-text message to accompany the file attachment.
+	•	-T: (Required) Your Webex access token.
+	•	-R: (Required for sending messages) The Webex room ID where the message will be sent.
+	•	-f: (Required for sending messages) The local file path of the file to upload.
+	•	-t: (Optional) A plain-text message to accompany the file attachment.
+	•	-L: (Optional) List all associated rooms (overrides message sending mode).
 
-### Example
+Example – Sending a Message:
 
-```bash
-./notify_by_webex -T "YOUR_ACCESS_TOKEN" -R "Y2lzY2....." -f "/home/desktop/example.png" -t "Example message with attachment"
-```
+./notify_by_webex -T "YOUR_ACCESS_TOKEN" -R "Y2lzY2....." -f "/path/to/your/file.png" -t "Here is the attached file."
 
-This command sends the `example.png` file to the specified Webex room with an accompanying text message.
+This command sends the specified file to the specified Webex room with an accompanying text message.
+
+Example – Listing Rooms:
+
+./notify_by_webex -T "YOUR_ACCESS_TOKEN" -L
+
+This command retrieves and displays a list of Webex rooms with their titles and IDs in a formatted table.
 
 ## Logging
 
@@ -89,5 +100,4 @@ This project is open source and available under the [MIT License](LICENSE).
 
 ## Acknowledgements
 
-This tool leverages the [Webex Messages API](https://developer.webex.com/docs/api/v1/messages) for sending messages and uploading attachments.
-
+This tool leverages the [Webex Messages API](https://developer.webex.com/docs/api/v1/messages) for sending messages and uploading attachments. Special thanks to olekukonko/tablewriter for the table formatting library used in listing rooms.
