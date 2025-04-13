@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -11,7 +12,10 @@ import (
 	"net/textproto"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+
+	"github.com/olekukonko/tablewriter"
 )
 
 const maxFileSize = 100 * 1024 * 1024 // 100 MB
@@ -32,21 +36,43 @@ var allowedExtensions = map[string]bool{
 	".png":  true,
 }
 
+// Room represents a Webex room.
+type Room struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// RoomsResponse is the expected structure of the Webex Rooms API response.
+type RoomsResponse struct {
+	Items []Room `json:"items"`
+}
+
 func main() {
 	// Define command-line flags.
 	tokenFlag := flag.String("T", "", "Webex access token")
-	roomIDFlag := flag.String("R", "", "Room ID")
+	roomIDFlag := flag.String("R", "", "Room ID for sending a message")
 	textFlag := flag.String("t", "", "Message text (optional)")
 	fileFlag := flag.String("f", "", "File path to upload")
+	listFlag := flag.Bool("L", false, "List associated rooms with their title and id")
 	flag.Parse()
 
-	// Check that required flags were provided.
+	// If the -L flag is provided, list the rooms and exit.
+	if *listFlag {
+		if *tokenFlag == "" {
+			fmt.Println("Error: The access token (-T) is required to list rooms.")
+			os.Exit(1)
+		}
+		listRooms(*tokenFlag)
+		os.Exit(0)
+	}
+
+	// For sending a message with a file, the following flags are required.
 	if *tokenFlag == "" || *roomIDFlag == "" || *fileFlag == "" {
-		fmt.Println("Usage: -T <token> -R <roomId> -f <filename> [-t <text>]")
+		fmt.Println("Usage: -T <token> -R <roomId> -f <filename> [-t <text>] [-L]")
 		os.Exit(1)
 	}
 
-	// Check file existence and its size.
+	// Check the file's existence and validate its size.
 	fileInfo, err := os.Stat(*fileFlag)
 	if err != nil {
 		fmt.Printf("Error accessing file: %v\n", err)
@@ -82,7 +108,7 @@ func main() {
 		mimeType = "application/octet-stream"
 	}
 
-	// Create a custom part for the file with proper headers.
+	// Create a custom part for the file so we can set the "Content-Type" header.
 	h := make(textproto.MIMEHeader)
 	h.Set("Content-Disposition",
 		fmt.Sprintf(`form-data; name="files"; filename="%s"`, filepath.Base(*fileFlag)))
@@ -125,7 +151,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create the HTTP POST request.
+	// Create the HTTP POST request for sending the message.
 	req, err := http.NewRequest("POST", "https://webexapis.com/v1/messages", &requestBody)
 	if err != nil {
 		fmt.Printf("Error creating HTTP request: %v\n", err)
@@ -154,4 +180,49 @@ func main() {
 
 	fmt.Printf("Response Status: %s\n", resp.Status)
 	fmt.Printf("Response Body: %s\n", respBody)
+}
+
+// listRooms fetches and displays the list of associated rooms.
+func listRooms(token string) {
+	// Create a GET request to the Webex Rooms API endpoint.
+	req, err := http.NewRequest("GET", "https://webexapis.com/v1/rooms", nil)
+	if err != nil {
+		fmt.Printf("Error creating request to list rooms: %v\n", err)
+		os.Exit(1)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Error sending rooms list request: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Printf("Error reading rooms list response: %v\n", err)
+		os.Exit(1)
+	}
+
+	var roomsResp RoomsResponse
+	err = json.Unmarshal(respBytes, &roomsResp)
+	if err != nil {
+		fmt.Printf("Error parsing rooms list JSON: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Sort rooms by title.
+	sort.Slice(roomsResp.Items, func(i, j int) bool {
+		return roomsResp.Items[i].Title < roomsResp.Items[j].Title
+	})
+
+	// Use tablewriter to display the list of rooms.
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Title", "ID"})
+	for _, room := range roomsResp.Items {
+		table.Append([]string{room.Title, room.ID})
+	}
+	table.Render()
 }
