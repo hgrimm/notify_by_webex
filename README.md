@@ -55,11 +55,11 @@ Run the executable with the required flags:
 
 ## Flags
 
-	•	-T: (Required) Your Webex access token.
-	•	-R: (Required for sending messages) The Webex room ID where the message will be sent.
-	•	-f: (Required for sending messages) The local file path of the file to upload.
-	•	-t: (Optional) A plain-text message to accompany the file attachment.
-	•	-L: (Optional) List all associated rooms (overrides message sending mode).
+-T: (Required) Your Webex access token.
+-R: (Required for sending messages) The Webex room ID where the message will be sent.
+-f: (Required for sending messages) The local file path of the file to upload.
+-t: (Optional) A plain-text message to accompany the file attachment.
+-L: (Optional) List all associated rooms (overrides message sending mode).
 
 Example – Sending a Message:
 
