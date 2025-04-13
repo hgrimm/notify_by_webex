@@ -23,7 +23,7 @@ The tool supports the following file types:
 1. **Clone the Repository**
 
    ```bash
-   git clone https://github.com/your-username/notify_by_webex.git
+   git clone https://github.com/hgrimm/notify_by_webex.git
    cd notify_by_webex
    ```
 
