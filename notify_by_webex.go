@@ -6,10 +6,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,208 +22,187 @@ import (
 
 const maxFileSize = 100 * 1024 * 1024 // 100 MB
 
-// allowedExtensions lists supported file types.
-var allowedExtensions = map[string]bool{
-	".doc":  true,
-	".docx": true,
-	".xls":  true,
-	".xlsx": true,
-	".ppt":  true,
-	".pptx": true,
-	".pdf":  true,
-	".jpg":  true,
-	".jpeg": true,
-	".bmp":  true,
-	".gif":  true,
-	".png":  true,
+
+var verboseLevel int
+
+func logDebug(level int, msg string, args ...interface{}) {
+	if verboseLevel >= level {
+		log.Printf(msg, args...)
+	}
 }
 
-// Room represents a Webex room.
 type Room struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
 }
 
-// RoomsResponse is the expected structure of the Webex Rooms API response.
 type RoomsResponse struct {
 	Items []Room `json:"items"`
 }
 
 func main() {
-	// Define command-line flags.
-	tokenFlag := flag.String("T", "", "Webex access token")
-	roomIDFlag := flag.String("R", "", "Room ID for sending a message")
-	textFlag := flag.String("t", "", "Message text (optional)")
-	fileFlag := flag.String("f", "", "File path to upload")
-	listFlag := flag.Bool("L", false, "List associated rooms with their title and id")
+	token := flag.String("T", "", "Webex API Token (required)")
+	roomID := flag.String("R", "", "Webex Room ID")
+	recipient := flag.String("r", "", "Recipient's email address (alternative to Room ID)")
+	text := flag.String("t", "", "Message text (optional)")
+	markdown := flag.String("m", "", "Markdown message (optional)")
+	filePath := flag.String("f", "", "Path to local file (optional)")
+	fileURL := flag.String("F", "", "Public file URL to attach (optional)")
+	cardFile := flag.String("A", "", "Path to Adaptive Card JSON file (optional)")
+	listRoomsFlag := flag.Bool("L", false, "List available rooms")
+	verbosity := flag.Int("v", 0, "Verbosity level (0 ... 2)")
 	flag.Parse()
+	verboseLevel = *verbosity
 
-	// If the -L flag is provided, list the rooms and exit.
-	if *listFlag {
-		if *tokenFlag == "" {
-			fmt.Println("Error: The access token (-T) is required to list rooms.")
-			os.Exit(1)
+	if *token == "" {
+		fmt.Fprintln(os.Stderr, "Fehler: Token (-T) ist erforderlich.")
+		os.Exit(1)
+	}
+
+	if *listRoomsFlag {
+		listRooms(*token)
+		return
+	}
+
+	if *roomID == "" && *recipient == "" {
+		fmt.Fprintln(os.Stderr, "Fehler: Entweder -R (Room ID) oder -r (Empfängeradresse) muss angegeben werden.")
+		os.Exit(1)
+	}
+
+	endpointUrl := "https://webexapis.com/v1/messages"
+	var req *http.Request
+	var err error
+
+	if *filePath != "" {
+		// multipart/form-data für Dateiupload
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+
+		// Datei öffnen
+		fInfo, err := os.Stat(*filePath)
+		if err != nil || fInfo.Size() > maxFileSize {
+			log.Fatalf("Dateifehler: %v", err)
 		}
-		listRooms(*tokenFlag)
-		os.Exit(0)
-	}
+		file, _ := os.Open(*filePath)
+		defer file.Close()
 
-	// For sending a message with a file, the following flags are required.
-	if *tokenFlag == "" || *roomIDFlag == "" || *fileFlag == "" {
-		fmt.Println("Usage: -T <token> -R <roomId> -f <filename> [-t <text>] [-L]")
-		os.Exit(1)
-	}
-
-	// Check the file's existence and validate its size.
-	fileInfo, err := os.Stat(*fileFlag)
-	if err != nil {
-		fmt.Printf("Error accessing file: %v\n", err)
-		os.Exit(1)
-	}
-	if fileInfo.Size() > maxFileSize {
-		fmt.Println("Error: file exceeds maximum allowed size of 100 MB")
-		os.Exit(1)
-	}
-
-	// Check that the file extension is supported.
-	ext := strings.ToLower(filepath.Ext(*fileFlag))
-	if _, ok := allowedExtensions[ext]; !ok {
-		fmt.Println("Error: file type not supported")
-		os.Exit(1)
-	}
-
-	// Open the file.
-	file, err := os.Open(*fileFlag)
-	if err != nil {
-		fmt.Printf("Error opening file: %v\n", err)
-		os.Exit(1)
-	}
-	defer file.Close()
-
-	// Prepare a buffer and a multipart writer.
-	var requestBody bytes.Buffer
-	writer := multipart.NewWriter(&requestBody)
-
-	// Determine the MIME type for the file.
-	mimeType := mime.TypeByExtension(ext)
-	if mimeType == "" {
-		mimeType = "application/octet-stream"
-	}
-
-	// Create a custom part for the file so we can set the "Content-Type" header.
-	h := make(textproto.MIMEHeader)
-	h.Set("Content-Disposition",
-		fmt.Sprintf(`form-data; name="files"; filename="%s"`, filepath.Base(*fileFlag)))
-	h.Set("Content-Type", mimeType)
-
-	// Log the headers.
-	fmt.Printf("Content-Disposition: %s\n", h.Get("Content-Disposition"))
-	fmt.Printf("Content-Type: %s\n", h.Get("Content-Type"))
-
-	filePart, err := writer.CreatePart(h)
-	if err != nil {
-		fmt.Printf("Error creating form file part: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Copy the file content to the multipart file part.
-	_, err = io.Copy(filePart, file)
-	if err != nil {
-		fmt.Printf("Error copying file content: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Add the "roomId" field.
-	if err := writer.WriteField("roomId", *roomIDFlag); err != nil {
-		fmt.Printf("Error adding roomId field: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Add the "text" field if provided.
-	if *textFlag != "" {
-		if err := writer.WriteField("text", *textFlag); err != nil {
-			fmt.Printf("Error adding text field: %v\n", err)
-			os.Exit(1)
+		mimeType := mime.TypeByExtension(filepath.Ext(*filePath))
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
 		}
+		h := make(textproto.MIMEHeader)
+		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="files"; filename="%s"`, filepath.Base(*filePath)))
+		h.Set("Content-Type", mimeType)
+		part, _ := writer.CreatePart(h)
+		io.Copy(part, file)
+
+		// Pflichtfelder
+		if *roomID != "" {
+			writer.WriteField("roomId", *roomID)
+		} else {
+			writer.WriteField("toPersonEmail", *recipient)
+		}
+
+		// Optional: Text, Markdown
+		if *text != "" {
+			writer.WriteField("text", *text)
+		}
+		if *markdown != "" {
+			writer.WriteField("markdown", *markdown)
+		}
+		// Optional: öffentlicher Datei-Link
+		if *fileURL != "" {
+			writer.WriteField("files", *fileURL)
+		}
+		writer.Close()
+
+		req, err = http.NewRequest("POST", endpointUrl, &body)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+	} else if *cardFile != "" {
+		// JSON mit Adaptive Card direkt senden
+		cardData, err := os.ReadFile(*cardFile)
+		if err != nil {
+			log.Fatalf("Fehler beim Lesen der Card-Datei: %v", err)
+		}
+		recipientField := "roomId"
+		recipientValue := *roomID
+		if *recipient != "" {
+			recipientField = "toPersonEmail"
+			recipientValue = *recipient
+		}
+		jsonPayload := fmt.Sprintf(`{
+			"%s": "%s",
+			"text": "%s",
+			"attachments": [{
+				"contentType": "application/vnd.microsoft.card.adaptive",
+				"content": %s
+			}]
+		}`, recipientField, recipientValue, *text, string(cardData))
+
+		req, err = http.NewRequest("POST", endpointUrl, strings.NewReader(jsonPayload))
+		req.Header.Set("Content-Type", "application/json")
+	} else {
+		// Nur Textnachricht (kein File, keine Card)
+		values := make(url.Values)
+		if *roomID != "" {
+			values.Set("roomId", *roomID)
+		} else {
+			values.Set("toPersonEmail", *recipient)
+		}
+		if *text != "" {
+			values.Set("text", *text)
+		}
+		if *markdown != "" {
+			values.Set("markdown", *markdown)
+		}
+		if *fileURL != "" {
+			values.Set("files", *fileURL)
+		}
+		req, err = http.NewRequest("POST", endpointUrl, strings.NewReader(values.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 
-	// Close the writer to finalize the multipart body.
-	if err := writer.Close(); err != nil {
-		fmt.Printf("Error closing multipart writer: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Create the HTTP POST request for sending the message.
-	req, err := http.NewRequest("POST", "https://webexapis.com/v1/messages", &requestBody)
 	if err != nil {
-		fmt.Printf("Error creating HTTP request: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("Request-Erstellung fehlgeschlagen: %v", err)
 	}
+	req.Header.Set("Authorization", "Bearer "+*token)
 
-	// Set required headers.
-	req.Header.Set("Authorization", "Bearer "+*tokenFlag)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	// Send the request.
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("Error sending request: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("Fehler beim Senden: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// Read and print the response.
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Printf("Error reading response: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("Response Status: %s\n", resp.Status)
-	fmt.Printf("Response Body: %s\n", respBody)
+	respBody, _ := io.ReadAll(resp.Body)
+	fmt.Println(string(respBody))
 }
 
-// listRooms fetches and displays the list of associated rooms.
 func listRooms(token string) {
-	// Create a GET request to the Webex Rooms API endpoint.
 	req, err := http.NewRequest("GET", "https://webexapis.com/v1/rooms", nil)
 	if err != nil {
-		fmt.Printf("Error creating request to list rooms: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("Fehler bei Request-Erstellung: %v", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		fmt.Printf("Error sending rooms list request: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("Fehler beim Abrufen: %v", err)
 	}
 	defer resp.Body.Close()
 
-	respBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Printf("Error reading rooms list response: %v\n", err)
-		os.Exit(1)
+	body, _ := io.ReadAll(resp.Body)
+	var r RoomsResponse
+	if err := json.Unmarshal(body, &r); err != nil {
+		log.Fatalf("Fehler beim Parsen: %v", err)
 	}
 
-	var roomsResp RoomsResponse
-	err = json.Unmarshal(respBytes, &roomsResp)
-	if err != nil {
-		fmt.Printf("Error parsing rooms list JSON: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Sort rooms by title.
-	sort.Slice(roomsResp.Items, func(i, j int) bool {
-		return roomsResp.Items[i].Title < roomsResp.Items[j].Title
+	sort.Slice(r.Items, func(i, j int) bool {
+		return r.Items[i].Title < r.Items[j].Title
 	})
-
-	// Use tablewriter to display the list of rooms.
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Title", "ID"})
-	for _, room := range roomsResp.Items {
+	for _, room := range r.Items {
 		table.Append([]string{room.Title, room.ID})
 	}
 	table.Render()

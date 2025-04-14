@@ -1,0 +1,31 @@
+{
+    "type": "AdaptiveCard",
+    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+    "version": "1.3",
+    "body": [
+        {
+            "type": "Input.Text",
+            "label": "Name",
+            "isRequired": true,
+            "placeholder": "First Name + Last Name",
+            "errorMessage": "Please provide a valid input",
+            "regex": "^[\\p{L} .'-]+$",
+            "id": "sample text"
+        },
+        {
+            "type": "Input.Date",
+            "id": "sample date",
+            "label": "Date of Birth",
+            "errorMessage": "Please enter a valid date",
+            "isRequired": true,
+            "min": "1960-01-01",
+            "max": "1999-12-31"
+        }
+    ],
+    "actions": [
+        {
+            "type": "Action.Submit",
+            "title": "Action.Submit"
+        }
+    ]
+}
